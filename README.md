@@ -8,4 +8,4 @@ Repositório para armazenamento dos exercícios da matéria de mestrado Técnica
 Os arquivos do trabalho final estão na pasta "trabalho";
 
 Para execução utilize:
-`gcc -o main ./libs/udp_client.c main.c`
+`gcc -o controle_caldeira ./libs/udp_client.c main.c`

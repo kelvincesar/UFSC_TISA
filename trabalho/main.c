@@ -31,7 +31,7 @@ typedef struct {
 	float H;	// altura da coluna de água dentro do recipiente [m] 
 } Caldeira;
 
-int main(int argc, char *argv[]) {
+int main (int argc, char *argv[]) {
 	if (argc < 3) { 
 		fprintf(stderr,"* Uso: controle_caldeira --host --port \n");
 		fprintf(stderr,"* Onde:\n");
