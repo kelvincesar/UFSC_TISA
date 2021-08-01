@@ -86,25 +86,15 @@ A caldeira possui instrumentação embutida e aceita os seguintes comandos:
 	"anf123.4" define valor de Nf como 123.4
 */
 
-/** Retorna tamanho do comando enviado para a caldeira.
- * @param Number valor que será enviado;
- * @param cmd  comando enviado;
- * @returns Tamanho em bytes do comando.
- */
+
 int command_size (float value, char *cmd){
 	// Tamanho do valor enviado;
-	int cmd_len = snprintf(0, 0, "%.2f", value);
+	int cmd_len = snprintf(0, 0, "%f", value);
+	
 	// Incrementa o tamanho do comando;
-	return (cmd_len +strlen(cmd)-1);
+	return (cmd_len+strlen(cmd));
 }
 
-/** Realiza a leitura de algum parâmetro da caldeira.
- * @param socket socket utilizado para comunicação;
- * @param address endereço do host;
- * @param cmd_index index do comando que será enviado (1 até 5)
- * @param leitura ponteiro onde a leitura realizada deve ser retornada;
- * @returns Retorna 1 quando a leitura for realizada com sucesso.
- */
 int udp_read_data (int socket, struct sockaddr_in address, uint cmd_index, float *leitura){
 	// Armazena o nome do serviço que será solicitado
 	char service[5];
@@ -172,13 +162,6 @@ int udp_read_data (int socket, struct sockaddr_in address, uint cmd_index, float
 	return result; 
 }
 
-/** Realiza a escrita de algum parâmetro da caldeira.
- * @param socket socket utilizado para comunicação;
- * @param address endereço do host;
- * @param cmd_index index do comando que será enviado (6 até 9);
- * @param value valor que será escrito;
- * @returns Retorna 1 quando a leitura for realizada com sucesso.
- */
 int udp_write_data (int socket, struct sockaddr_in address, uint cmd_index, float value) {
 
 	char service[4];
@@ -202,7 +185,7 @@ int udp_write_data (int socket, struct sockaddr_in address, uint cmd_index, floa
 		default:
 			return UDP_ERROR;// error
 	}
-
+	
 	// Tamanho do comando que será enviado
 	uint len = command_size(value, service);
 	// Reserva armazenamento para o comando e resposta
@@ -212,7 +195,7 @@ int udp_write_data (int socket, struct sockaddr_in address, uint cmd_index, floa
 	int response_size;
 
 	// Gera string com o comando (concatena cmd + valor)
-	snprintf(cmd, len, "%s%.2f", service, value);
+	snprintf(cmd, len, "%s%f", service, value);
 
 	// Envio do comando
 	envia_mensagem(socket, address, cmd);
@@ -221,11 +204,11 @@ int udp_write_data (int socket, struct sockaddr_in address, uint cmd_index, floa
 	response_size = recebe_mensagem(socket, response, 1000);
 
 	// Compara resposta com comando para saber se foi enviado e aceito;
-	int result = (response_size != len ) ? UDP_ERROR : UDP_SUCCESS;
+	int result = (response_size != len-1 ) ? UDP_ERROR : UDP_SUCCESS;
 
-	printf("Comando: %s\n", cmd);
+	//printf("Comando: %s\n", cmd);
 	//printf("Response: %s\n", response);
-	//printf("Sizes %d and %d\n", len, response_size);
+	//printf("Sizes %d and %d\n", len-1, response_size);
 
 	// Limpa e retorna
 	free(cmd);

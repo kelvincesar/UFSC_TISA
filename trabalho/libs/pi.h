@@ -1,6 +1,7 @@
 // Inclusion guard, to prevent multiple includes of the same header
 #ifndef PI_H
 #define PI_H
+#include <stdio.h>
 
 typedef struct {
     // Ganhos do controlador
