@@ -1,6 +1,6 @@
 // Inclusion guard, to prevent multiple includes of the same header
-#ifndef UDP_CLIENT_H
-#define UDP_CLIENT_H
+#ifndef PI_H
+#define PI_H
 
 typedef struct {
     // Ganhos do controlador
