@@ -15,6 +15,7 @@
 #include <math.h>
 #include <fcntl.h>
 
+
 #include "./libs/udp_client.h"
 #include "./libs/pi.h"
 
@@ -28,14 +29,14 @@ pthread_t thread_control_h;
 pthread_mutex_t mutex_tela = PTHREAD_MUTEX_INITIALIZER;
 
 
-#define ANSI_COLOR_RED     "\x1b[31m"
-#define ANSI_COLOR_GREEN   "\x1b[32m"
-#define ANSI_COLOR_YELLOW  "\x1b[33m"
-#define ANSI_COLOR_BLUE    "\x1b[34m"
-#define ANSI_COLOR_MAGENTA "\x1b[35m"
-#define ANSI_COLOR_CYAN    "\x1b[36m"
-#define ANSI_COLOR_RESET   "\x1b[0m"
-
+#define COLOR_RED     "\x1b[31m"
+#define COLOR_GREEN   "\x1b[32m"
+#define COLOR_YELLOW  "\x1b[33m"
+#define COLOR_BLUE    "\x1b[34m"
+#define COLOR_MAGENTA "\x1b[35m"
+#define COLOR_CYAN    "\x1b[36m"
+#define COLOR_RESET   "\x1b[0m"
+#define COLOR_WHITE	  "\x1b[0;37m"
 
 // Lista de comandos para comunicação com a caldeira
 #define GET_Ta 	(1)
@@ -85,15 +86,28 @@ float h_ref = -1.0f;
 
 #define NSEC_PER_SEC    (1000000000) /* The number of nsecs per sec. */
 void refresh_screen (){
+	int falha_temperatura = 0;
 	sleep(2);
 	while (1){
+		if (caldeira.T > TEMP_FAULT && falha_temperatura == 0){
+			falha_temperatura = 1;
+		} else if(falha_temperatura == 1 && caldeira.T <= TEMP_FAULT){
+			falha_temperatura = 0;
+		}
 		pthread_mutex_lock(&mutex_tela);
-		printf(ANSI_COLOR_CYAN "\nInformação dos sensores lidos da caldeira:\n");
-		printf(ANSI_COLOR_MAGENTA"* Temperatura da água no interior (T): %f °C\n", caldeira.T);
-		printf(ANSI_COLOR_MAGENTA"* Temperatura da água de entrada  (Ti): %f °C\n", caldeira.Ti);
-		printf(ANSI_COLOR_MAGENTA"* Temperatura exterior da caldeira (Ta): %f °C\n", caldeira.Ta);
-		printf(ANSI_COLOR_MAGENTA"* Fluxo da água na saída da caldeira (No): %f kg/s\n", caldeira.No);
-		printf(ANSI_COLOR_MAGENTA"* Nível da caldeira (H): %f m\n", caldeira.H);
+		system("clear");
+
+		if (falha_temperatura == 1){
+			printf(COLOR_RED "-----------------------------------------------------------------------\n");
+			printf(COLOR_RED "* [ALARME] A temperatura está acima do valor recomendado de %d °C\n", TEMP_FAULT);
+			printf(COLOR_RED "-----------------------------------------------------------------------\n");
+		}
+		printf(COLOR_CYAN "\nInformação dos sensores lidos da caldeira:\n");
+		printf(COLOR_WHITE"* Temperatura da água no interior (T): %f °C\n", caldeira.T);
+		printf(COLOR_WHITE"* Temperatura da água de entrada  (Ti): %f °C\n", caldeira.Ti);
+		printf(COLOR_WHITE"* Temperatura exterior da caldeira (Ta): %f °C\n", caldeira.Ta);
+		printf(COLOR_WHITE"* Fluxo da água na saída da caldeira (No): %f kg/s\n", caldeira.No);
+		printf(COLOR_WHITE"* Nível da caldeira (H): %f m\n", caldeira.H);
 		pthread_mutex_unlock(&mutex_tela);
 		sleep(1);
 	}
@@ -112,7 +126,7 @@ void read_new_references (){
 		// Se apertou alguma coisa
 		if(x != NULL){
 			pthread_mutex_lock(&mutex_tela);	
-			printf(ANSI_COLOR_YELLOW " Definindo uma nova referência para os valores!!\n");
+			printf(COLOR_YELLOW " Definindo uma nova referência para os valores!!\n");
 			printf("* Referências atuais: \n");
 			printf("	- Temperatura: %f °C\n", t_ref);
 			printf("	- Nível da caldeira: %f m\n\n", h_ref);
@@ -147,9 +161,9 @@ void leitura_sensores_caldeira (struct sockaddr_in *address){
 	int exec_ns;
 	clock_gettime(CLOCK_MONOTONIC, &t);	// Leitura do horário atual
 	t.tv_sec++;							// Inicia o controle após um segundo
-	printf(ANSI_COLOR_GREEN "* Thread de amostragem da caldeira inicializada\n");
+	printf(COLOR_GREEN "* Thread de amostragem da caldeira inicializada\n");
 
-	int falha_temperatura = 0;
+	
 
 	while(1){
 		// Aguarda até a próxima execução
@@ -160,16 +174,7 @@ void leitura_sensores_caldeira (struct sockaddr_in *address){
 		udp_read_data(socket, *address, GET_Ti, &caldeira.Ti);
 		udp_read_data(socket, *address, GET_No, &caldeira.No);
 
-		if (caldeira.T > TEMP_FAULT && falha_temperatura == 0){
-			printf(ANSI_COLOR_RED "\n=======================================================================\n");
-			printf(ANSI_COLOR_RED "                        [FALHA]                             \n");
-			printf(ANSI_COLOR_RED "=======================================================================\n");
-			printf(ANSI_COLOR_RED "* A temperatura atingiu %f °C ficanndo acima de %d°C\n", caldeira.T, TEMP_FAULT);
-			printf(ANSI_COLOR_RED "-----------------------------------------------------------------------\n");
-			falha_temperatura = 1;
-		} else if(falha_temperatura == 1 && caldeira.T <= TEMP_FAULT){
-			falha_temperatura = 0;
-		}
+		
 
 		
 		// Computa o tempo utilizado para execução
@@ -205,7 +210,7 @@ void temp_control (struct sockaddr_in *address){
 	int exec_ns;
 	clock_gettime(CLOCK_MONOTONIC, &t);	// Leitura do horário atual
 	t.tv_sec += 2;						// Inicia o controle após dois segundos
-	printf(ANSI_COLOR_GREEN "* Thread de controle da temperatura inicializada\n");
+	printf(COLOR_GREEN "* Thread de controle da temperatura inicializada\n");
 	while(1){
 		// Aguarda até a próxima execução
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
@@ -282,7 +287,7 @@ void nivel_control (struct sockaddr_in *address){
 	int exec_ns;
 	clock_gettime(CLOCK_MONOTONIC, &t);	// Leitura do horário atual
 	t.tv_sec += 2;						// Inicia o controle após dois segundos
-	printf(ANSI_COLOR_GREEN "* Thread de controle do nível inicializada\n");
+	printf(COLOR_GREEN "* Thread de controle do nível inicializada\n");
 	while(1){
 		// Aguarda até a próxima execução
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
@@ -307,7 +312,7 @@ void nivel_control (struct sockaddr_in *address){
 				caldeira.Nf = 0;
 			}
 
-			//printf(ANSI_COLOR_CYAN "nivel_control - Após ler H = %f definida nova vazão = %f\n", caldeira.H, new_vazao);
+			//printf(COLOR_CYAN "nivel_control - Após ler H = %f definida nova vazão = %f\n", caldeira.H, new_vazao);
 		}
 		
 		// Computa o tempo utilizado para execução
@@ -337,7 +342,7 @@ int main (int argc, char *argv[]) {
 		fprintf(stderr,"   controle_caldeira 172.27.224.1 5000\n");
 		exit(FALHA);
 	}
-	printf(ANSI_COLOR_GREEN "* Iniciando o sistema...\n");
+	printf(COLOR_GREEN "* Iniciando o sistema...\n");
 	// Gera struct com endereço host:port
 	int porta_destino = atoi(argv[2]);
 	struct sockaddr_in endereco_destino = cria_endereco_destino(argv[1], porta_destino);
