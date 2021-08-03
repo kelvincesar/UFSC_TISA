@@ -27,6 +27,8 @@ pthread_t thread_control_temp;
 pthread_t thread_control_h;
 
 pthread_mutex_t mutex_tela = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_buffer = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond_buffer_cheio = PTHREAD_COND_INITIALIZER;
 
 
 #define COLOR_RED     "\x1b[31m"
@@ -66,6 +68,8 @@ pthread_mutex_t mutex_tela = PTHREAD_MUTEX_INITIALIZER;
 #define VAZAO_MIN   (-100)		// Vazão mínima permitida da água do tanque (na saida Nf)
 #define VAZAO_MAX	(100)		// Vazão máxima permitida da água do tanque (na entrada Ni)
 #define Q_PERIOD 	(0.070)		// Tempo do controlador de nível em segundos (70 ms)
+
+#define BUFFER_SIZE 100
 // Data struct 
 typedef struct {
 	float Ta;	// temperatura do ar ambiente em volta do recipiente[°C] 
@@ -77,8 +81,22 @@ typedef struct {
 	float Ni;	// Valor da vazão de entrada [kg/s];
 	float Nf;	// Valor da vazão de saída [kg/s];
 } Caldeira;
+
 // Armazenamento dos dados da caldeira
 Caldeira caldeira;
+//Buffer duplo
+typedef struct {
+	float buffer0[BUFFER_SIZE];
+	float buffer1[BUFFER_SIZE];
+	int emsuso;
+	int index;
+	int gravar;
+} BufferDuplo;
+
+BufferDuplo buffer_temp;
+buffer_temp.emsuso = 0;
+buffer_temp.index = 0;
+buffer_temp.gravar = -1;
 
 // Referências;
 float t_ref = -1.0f;
@@ -191,6 +209,26 @@ void leitura_sensores_caldeira (struct sockaddr_in *address){
 		}
 	}
 }
+
+void buffer_insert(float value, BufferDuplo *buffer){
+	pthread_mutex_lock(&mutex_buffer);
+	if(buffer->emsuso == 0){
+		buffer->buffer0[buffer->index] = value;
+	}else{
+		buffer->buffer1[buffer->index] = value;
+	}
+	buffer->index++;
+	if(buffer->index >= BUFFER_SIZE){
+		buffer->gravar = buffer->emsuso;
+		buffer->emsuso = (buffer->emsuso + 1) % 2;
+		buffer->index = 0;
+		pthread_cond_signal(&cond_buffer_cheio);
+	}
+	pthread_mutex_unlock(&mutex_buffer);
+}
+
+
+
 void temp_control (struct sockaddr_in *address){
 	// Variáveis da comunicação
 	int socket = cria_socket_local();
