@@ -55,15 +55,19 @@ void string_to_float (StringToFloat *number, char *str) {
 	number->is_valid = (ret && len==strlen(str));
 }
 
+// Thread para exibir os dados na tela
 void refresh_screen (){
 	int falha_temperatura = 0;
 	sleep(2);
 	while (1){
+		// Verifica se a temperatura ultrapassou o nível de alarme
 		if (caldeira.T > TEMP_FAULT && falha_temperatura == 0){
 			falha_temperatura = 1;
 		} else if(falha_temperatura == 1 && caldeira.T <= TEMP_FAULT){
 			falha_temperatura = 0;
 		}
+
+		// Exibe os dados no terminal
 		pthread_mutex_lock(&mutex_tela);
 		system("clear");
 
@@ -100,7 +104,7 @@ void refresh_screen (){
 }
 
 
-
+// Thread para leitura das novas referências digitadas pelo usuário.
 void read_new_references (){
 
 	char teclado[100];			 // Armazena o que o usuário digita
@@ -122,6 +126,7 @@ void read_new_references (){
 			printf("* Digite um novo valor para referência de temperatura (°C):");
 			fgets(teclado, 100, stdin);
 			string_to_float(&new_reference, teclado);
+			// Validação do valor digitado
 			if(new_reference.is_valid == 1){
 				t_ref = new_reference.value;
 			} else {
@@ -131,6 +136,7 @@ void read_new_references (){
 			printf("* Digite um novo valor para referência de nível (m):");
 			fgets(teclado, 100, stdin);
 			string_to_float(&new_reference, teclado);
+			// Validação do valor digitado
 			if(new_reference.is_valid == 1){
 				if(new_reference.value <= H_MAX && new_reference.value >= H_MIN) {
 					h_ref = new_reference.value;
@@ -151,22 +157,19 @@ void read_new_references (){
 
 }
 
-
+// Thread para leitura dos sensores da caldeira
 void leitura_sensores_caldeira (){
 	// Variáveis da comunicação
 	int socket = cria_socket_local();
-	int udp_hanndler = 0;
 
 	// Variáveis de tempo
-	struct timespec t;
+	struct timespec t;					// Armazena horário
 	struct timespec t_exec;				// Tempo ao final da execução;
 	int ns_period = 0.010 * 1.0E9;		// Converte o periodo de segundo para nano segundo (10 ms)
 	int exec_ns;
 	clock_gettime(CLOCK_MONOTONIC, &t);	// Leitura do horário atual
 	t.tv_sec++;							// Inicia o controle após um segundo
 	printf(COLOR_GREEN "* Thread de amostragem da caldeira inicializada\n");
-
-	
 
 	while(1){
 		// Aguarda até a próxima execução
@@ -184,7 +187,6 @@ void leitura_sensores_caldeira (){
 		caldeira.Qe = -(caldeira.T - caldeira.Ta) / R_ISOLAMENTO;
 		caldeira.Qt = caldeira.Qa + caldeira.Qi + caldeira.Qe + caldeira.Q;
 
-		
 		// Computa o tempo utilizado para execução
 		clock_gettime(CLOCK_MONOTONIC, &t_exec);	// Leitura do horário atual
 		exec_ns = (t_exec.tv_sec - t.tv_sec) * 1.0E9;
@@ -199,12 +201,14 @@ void leitura_sensores_caldeira (){
 		}
 	}
 }
+
+// Thread para controle da temperatura da caldeira
 void temp_control (){
 	// Variáveis da comunicação
 	int socket = cria_socket_local();
 	int udp_hanndler = 0;
 
-	// Variáveis do PI
+	// Intancia as variáveis do controlador PI
 	Controlador_PI PI_Temp;
 	PI_Init(&PI_Temp, T_KP, T_KI, Q_MAX, Q_MIN, T_PERIOD);
 
@@ -212,7 +216,7 @@ void temp_control (){
 	float new_q = 0;	//Armazena novo valor de Q para a caldeira;
 
 	// Variáveis de tempo
-	struct timespec t;
+	struct timespec t;					// Armazena horário de execução.
 	struct timespec t_exec;				// Tempo ao final da execução;
 
 	#ifdef DEBUG_TIME_TEMP
@@ -220,7 +224,7 @@ void temp_control (){
 	#endif
 
 	int ns_period = T_PERIOD * 1.0E9;	// Converte o periodo de segundo para nano segundo
-	int exec_ns;
+	int exec_ns;						// Tempo de execução em nano segundos;
 	clock_gettime(CLOCK_MONOTONIC, &t);	// Leitura do horário atual
 	t.tv_sec += 2;						// Inicia o controle após dois segundos
 	printf(COLOR_GREEN "* Thread de controle da temperatura inicializada\n");
@@ -228,12 +232,12 @@ void temp_control (){
 		// Aguarda até a próxima execução
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
 
+		// Se houver referência de temperatura
 		if (t_ref != -1.0f){
 			// Atualiza o controlador PI
 			new_q = PI_Update(&PI_Temp, t_ref, caldeira.T);
 			// Envia novo valor de Q para a caldeira;
 			udp_hanndler = udp_write_data(socket, SET_Q, new_q);
-			//printf("temp_control - Após ler T = %f definida novo H = %f\n", caldeira.T, new_q);
 
 			caldeira.Q = new_q;
 		}
@@ -262,6 +266,7 @@ void temp_control (){
 
 }
 
+// Função para incrementar o nível da caldeira
 void incrementa_nivel (int socket, float vazao){
 	// Define vazão para a válvula de entrada
 	udp_write_data(socket, SET_Ni, vazao);
@@ -269,6 +274,7 @@ void incrementa_nivel (int socket, float vazao){
 	caldeira.Ni = vazao;
 	caldeira.Nf = 0;
 }
+// Função para decrementar o nível da caldeira
 void decrementa_nivel (int socket, float vazao){
 	// Define vazão para a válvula de saída
 	udp_write_data(socket, SET_Ni, 0);
@@ -277,6 +283,7 @@ void decrementa_nivel (int socket, float vazao){
 	caldeira.Nf = vazao;
 }
 
+// Thread para controle de nível da caldeira
 void nivel_control (){
 	// Variáveis da comunicação
 	int socket = cria_socket_local();
@@ -313,6 +320,7 @@ void nivel_control (){
 			// Atualiza o controlador PI
 			new_vazao = PI_Update(&PI_Nivel, h_ref, caldeira.H);
 
+			// Com base na saída, define o atuador
 			if(new_vazao > 0){
 				new_vazao = fabs(new_vazao);
 				incrementa_nivel(socket, new_vazao);
@@ -327,8 +335,6 @@ void nivel_control (){
 				caldeira.Ni = 0;
 				caldeira.Nf = 0;
 			}
-
-			//printf(COLOR_CYAN "nivel_control - Após ler H = %f definida nova vazão = %f\n", caldeira.H, new_vazao);
 		}
 		
 		// Computa o tempo utilizado para execução
