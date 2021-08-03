@@ -18,9 +18,12 @@
 // # Debug flags
 //#define DEBUG_TIME_TEMP
 //#define DEBUG_TIME_NIVEL
+// # Buffer
+#define BUFFER_SIZE     (100)
+#define BUFFER_FILE_NAME "caldeira_log_temperatura.log"
 
 // # Parâmetros da caldeira:
-#define TEMP_FAULT (30)		    // Temperatura que gera falha
+#define TEMP_FAULT      (30)    // Temperatura que gera falha
 
 #define S_AGUA 			(4184) 	// Calor específico da água [Joule/Kg.Celsius]
 #define P_AGUA 			(1000)	// Peso específico da água [kg/m3]
@@ -85,6 +88,15 @@ typedef struct {
     float value;
     int is_valid;
 } StringToFloat; 
+
+// Buffer duplo
+typedef struct {
+	float buffer0[BUFFER_SIZE];
+	float buffer1[BUFFER_SIZE];
+	int selected_buffer;
+	int index;
+	int gravar;
+} BufferDuplo;
 
 
 // End of the inclusion guard

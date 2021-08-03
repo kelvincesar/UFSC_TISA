@@ -16,19 +16,38 @@ pthread_t thread_control_temp;
 pthread_t thread_control_h;
 
 pthread_mutex_t mutex_tela = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_buffer = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond_buffer_cheio = PTHREAD_COND_INITIALIZER;
 
 // Armazena dos dados da caldeira
 Caldeira caldeira;
+
+BufferDuplo buffer_temp = {.selected_buffer = 0, .index = 0, .gravar = -1};
+
 
 // Referências;
 float t_ref = -1.0f;
 float h_ref = -1.0f;
 
-/**
- * Funções utilizadas para converter um valor de string para float
- * e validar se é um número válido;
-*/
+// Função usada para inserir um novo valor no buffer
+void buffer_insert(float value, BufferDuplo *buffer){
+	pthread_mutex_lock(&mutex_buffer);
+	if(buffer->selected_buffer == 0){
+		buffer->buffer0[buffer->index] = value;
+	}else{
+		buffer->buffer1[buffer->index] = value;
+	}
+	buffer->index++;
+	if(buffer->index >= BUFFER_SIZE){
+		buffer->gravar = buffer->selected_buffer;
+		buffer->selected_buffer = (buffer->selected_buffer + 1) % 2;
+		buffer->index = 0;
+		pthread_cond_signal(&cond_buffer_cheio);
+	}
+	pthread_mutex_unlock(&mutex_buffer);
+}
 
+// * Função utilizada para converter um valor de string para float
 void string_to_float (StringToFloat *number, char *str) {
 	int len;
 	int ret = sscanf(str, "%f %n", &(number->value), &len);
