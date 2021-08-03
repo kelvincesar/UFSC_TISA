@@ -4,6 +4,7 @@
 
 #include "udp_client.h"
 
+struct sockaddr_in host_address;
 
 
 /********************************************************************
@@ -21,7 +22,7 @@ int cria_socket_local(void) {
 	return socket_local;
 }
 
-struct sockaddr_in cria_endereco_destino(char *destino, int porta_destino){
+void cria_endereco_destino(char *destino, int porta_destino){
 	struct sockaddr_in servidor; 	/* Endereço do servidor incluindo ip e porta */
 	struct hostent *dest_internet;	/* Endereço destino em formato próprio */
 	struct in_addr dest_ip;		/* Endereço destino em formato ip numérico */
@@ -41,13 +42,13 @@ struct sockaddr_in cria_endereco_destino(char *destino, int porta_destino){
 	servidor.sin_family = AF_INET;
 	servidor.sin_port = htons(porta_destino);
 
-	return servidor;
+	host_address = servidor;
 }
 
-void envia_mensagem(int socket_local, struct sockaddr_in endereco_destino, char *mensagem) {
+void envia_mensagem(int socket_local, char *mensagem) {
 	/* Envia msg ao servidor */
 
-	if (sendto(socket_local, mensagem, strlen(mensagem)+1, 0, (struct sockaddr *) &endereco_destino, sizeof(endereco_destino)) < 0 ){ 
+	if (sendto(socket_local, mensagem, strlen(mensagem)+1, 0, (struct sockaddr *) &host_address, sizeof(host_address)) < 0 ){ 
 		perror("sendto");
 		return;
 	}
@@ -95,7 +96,7 @@ int command_size (float value, char *cmd){
 	return (cmd_len+strlen(cmd));
 }
 
-int udp_read_data (int socket, struct sockaddr_in address, uint cmd_index, float *leitura){
+int udp_read_data (int socket, uint cmd_index, float *leitura){
 	// Armazena o nome do serviço que será solicitado
 	char service[5];
 	// Inicializa service com bytes nulos
@@ -128,7 +129,7 @@ int udp_read_data (int socket, struct sockaddr_in address, uint cmd_index, float
 	int response_size;
 
 	// Envio do comando de leitura
-	envia_mensagem(socket, address, service);
+	envia_mensagem(socket, service);
 
 	// Leitura da resposta
 	response_size = recebe_mensagem(socket, response, 1000);
@@ -162,7 +163,7 @@ int udp_read_data (int socket, struct sockaddr_in address, uint cmd_index, float
 	return result; 
 }
 
-int udp_write_data (int socket, struct sockaddr_in address, uint cmd_index, float value) {
+int udp_write_data (int socket, uint cmd_index, float value) {
 
 	char service[4];
 	// Inicializa service com bytes nulos
@@ -198,7 +199,7 @@ int udp_write_data (int socket, struct sockaddr_in address, uint cmd_index, floa
 	snprintf(cmd, len, "%s%f", service, value);
 
 	// Envio do comando
-	envia_mensagem(socket, address, cmd);
+	envia_mensagem(socket, cmd);
 
 	// Leitura da resposta
 	response_size = recebe_mensagem(socket, response, 1000);

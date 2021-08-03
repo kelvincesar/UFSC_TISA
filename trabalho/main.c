@@ -6,18 +6,7 @@
  *	- Lucas Buzetto Tsuchiya 
  */
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <time.h>
-#include <string.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <math.h>
-#include <fcntl.h>
-
-
-#include "./libs/udp_client.h"
-#include "./libs/pi.h"
+#include "main.h"
 
 // Threads do sistema
 pthread_t thread_update_reads;
@@ -28,63 +17,24 @@ pthread_t thread_control_h;
 
 pthread_mutex_t mutex_tela = PTHREAD_MUTEX_INITIALIZER;
 
-
-#define COLOR_RED     "\x1b[31m"
-#define COLOR_GREEN   "\x1b[32m"
-#define COLOR_YELLOW  "\x1b[33m"
-#define COLOR_BLUE    "\x1b[34m"
-#define COLOR_MAGENTA "\x1b[35m"
-#define COLOR_CYAN    "\x1b[36m"
-#define COLOR_RESET   "\x1b[0m"
-#define COLOR_WHITE	  "\x1b[0;37m"
-
-// Lista de comandos para comunicação com a caldeira
-#define GET_Ta 	(1)
-#define GET_T	(2)
-#define GET_Ti	(3)
-#define GET_No	(4)
-#define GET_H	(5)
-#define SET_Ni	(6)
-#define SET_Q	(7)
-#define SET_Na 	(8)
-#define SET_Nf 	(9)
-
-
-#define TEMP_FAULT (2)		// Temperatura que gera falha
-// Variáveis de controle
-#define T_KI		(100)
-#define T_KP		(10000)
-#define Q_MAX		(999999.9)	// Valor máximo da variável Q (testado na caldeira)
-#define Q_MIN		(0)			// Valor mínimo da variável Q
-#define T_PERIOD	(0.050)		// Tempo do controlador de temperatura em segundos (50 ms)
-
-
-#define H_KI		(1)
-#define H_KP		(100)
-#define H_MAX		(3)			// Altura máxima do tanque
-#define H_MIN		(0.1)		// Altura mínima do tanque
-#define VAZAO_MIN   (-100)		// Vazão mínima permitida da água do tanque (na saida Nf)
-#define VAZAO_MAX	(100)		// Vazão máxima permitida da água do tanque (na entrada Ni)
-#define Q_PERIOD 	(0.070)		// Tempo do controlador de nível em segundos (70 ms)
-// Data struct 
-typedef struct {
-	float Ta;	// temperatura do ar ambiente em volta do recipiente[°C] 
-	float T;	// temperatura da água no interior do recipiente [°C] 
-	float Ti;	// temperatura da água na entrada do recipiente [°C] 
-	float No;	// fluxo de água de saída do recipiente [kg/s] 
-	float H;	// altura da coluna de água dentro do recipiente [m] 
-	float Q;	// Valor de Q [J/s ou W];
-	float Ni;	// Valor da vazão de entrada [kg/s];
-	float Nf;	// Valor da vazão de saída [kg/s];
-} Caldeira;
-// Armazenamento dos dados da caldeira
+// Armazena dos dados da caldeira
 Caldeira caldeira;
 
 // Referências;
 float t_ref = -1.0f;
 float h_ref = -1.0f;
 
-#define NSEC_PER_SEC    (1000000000) /* The number of nsecs per sec. */
+/**
+ * Funções utilizadas para converter um valor de string para float
+ * e validar se é um número válido;
+*/
+
+void string_to_float (StringToFloat *number, char *str) {
+	int len;
+	int ret = sscanf(str, "%f %n", &(number->value), &len);
+	number->is_valid = (ret && len==strlen(str));
+}
+
 void refresh_screen (){
 	int falha_temperatura = 0;
 	sleep(2);
@@ -102,54 +52,87 @@ void refresh_screen (){
 			printf(COLOR_RED "* [ALARME] A temperatura está acima do valor recomendado de %d °C\n", TEMP_FAULT);
 			printf(COLOR_RED "-----------------------------------------------------------------------\n");
 		}
+		printf(COLOR_CYAN "\nParâmetros de controle:\n");	
+		printf(COLOR_WHITE"* Setpoint de temperatura: %.2f °C\n", t_ref);	
+		printf(COLOR_WHITE"* Setpoint de nível: %.2f m\n", h_ref);	
 		printf(COLOR_CYAN "\nInformação dos sensores lidos da caldeira:\n");
 		printf(COLOR_WHITE"* Temperatura da água no interior (T): %f °C\n", caldeira.T);
+		printf(COLOR_WHITE"* Nível da caldeira (H): %f m\n\n", caldeira.H);
 		printf(COLOR_WHITE"* Temperatura da água de entrada  (Ti): %f °C\n", caldeira.Ti);
-		printf(COLOR_WHITE"* Temperatura exterior da caldeira (Ta): %f °C\n", caldeira.Ta);
-		printf(COLOR_WHITE"* Fluxo da água na saída da caldeira (No): %f kg/s\n", caldeira.No);
-		printf(COLOR_WHITE"* Nível da caldeira (H): %f m\n", caldeira.H);
+		printf(COLOR_WHITE"* Temperatura exterior da caldeira (Ta): %f °C\n\n", caldeira.Ta);
+
+		printf(COLOR_WHITE"* Fluxo de calor inserido pela água de entrada (Qi): %f J/s\n", caldeira.Qi);	
+		printf(COLOR_WHITE"* Fluxo de calor inserido pela água quente  (Qa): %f J/s\n", caldeira.Qa);	
+		printf(COLOR_WHITE"* Fluxo de calor através do isolante (Qe): %f J/s\n", caldeira.Qe);	
+		printf(COLOR_WHITE"* Fluxo de calor do aquecedor (Q): %f J/s\n", caldeira.Q);	
+		printf(COLOR_WHITE"* Fluxo de calor total: %f J/s\n\n", caldeira.Qt);	
+
+		printf(COLOR_WHITE"* Fluxo de entrada de água da caldeira (Ni): %f kg/s\n", caldeira.Ni);
+		printf(COLOR_WHITE"* Fluxo de entrada de água aquecida 80°C (Na): %f kg/s\n", caldeira.Na);
+		printf(COLOR_WHITE"* Fluxo de saída de água da caldeira (No): %f kg/s\n", caldeira.No);
+		printf(COLOR_WHITE"* Fluxo de saída de água para esgoto (Nf): %f kg/s\n", caldeira.Nf);
+
+		printf(COLOR_CYAN "\nComandos disponíveis: \n");
+		printf(TO_BLUE("[ENTER]") COLOR_WHITE " - Para definir novos valores de setpoint\n");	
 		pthread_mutex_unlock(&mutex_tela);
 		sleep(1);
 	}
 }
 
+
+
 void read_new_references (){
-	char teclado[100];
-	char *x; // Recebe o retorno do fgets
-	// Realiza a leitura das flags de configuração do fgets;
-	int flags_sync = fcntl( fileno(stdin), F_GETFL, 0);
-	// Altera a flag de configuração do fgets para operar de forma assyc;
-	fcntl( fileno(stdin), F_SETFL, flags_sync | O_NONBLOCK);
+
+	char teclado[100];			 // Armazena o que o usuário digita
+	char *x; 					 // Recebe o retorno do fgets
+	StringToFloat new_reference; // Usado para validar e converter a string para float
 
 	while (1){
 		x = fgets(teclado, 100, stdin);
 		// Se apertou alguma coisa
 		if(x != NULL){
+
 			pthread_mutex_lock(&mutex_tela);	
-			printf(COLOR_YELLOW " Definindo uma nova referência para os valores!!\n");
-			printf("* Referências atuais: \n");
-			printf("	- Temperatura: %f °C\n", t_ref);
-			printf("	- Nível da caldeira: %f m\n\n", h_ref);
-			fcntl( fileno(stdin), F_SETFL, flags_sync);
+			system("clear");
+			printf(COLOR_YELLOW "Definindo uma novo setpoint para as variáveis de controle:\n");
+			printf(COLOR_WHITE "* Referências atuais: \n");
+			printf("\t- Temperatura: %.2f °C\n", t_ref);
+			printf("\t- Nível da caldeira: %.2f m\n\n", h_ref);
+			
 			printf("* Digite um novo valor para referência de temperatura (°C):");
 			fgets(teclado, 100, stdin);
-			t_ref = atof(teclado);
+			string_to_float(&new_reference, teclado);
+			if(new_reference.is_valid == 1){
+				t_ref = new_reference.value;
+			} else {
+				printf(TO_RED("[ERROR]") " - Valor digitado não é válido! \n");
+			}
+
 			printf("* Digite um novo valor para referência de nível (m):");
 			fgets(teclado, 100, stdin);
-			h_ref = atof(teclado);
+			string_to_float(&new_reference, teclado);
+			if(new_reference.is_valid == 1){
+				if(new_reference.value <= H_MAX && new_reference.value >= H_MIN) {
+					h_ref = new_reference.value;
+				} else {
+					printf(TO_RED("[ERROR]") " - Valor digitado está fora dos limites permitidos! (Máx: %d Mín: %d) \n", H_MAX, H_MIN);
+				}
+			} else {
+				printf(TO_RED("[ERROR]") " - Valor digitado não é válido! \n");
+			}
 
-			printf("\n* Novas referências definidas: \n");
-			printf("	- Temperatura: %f °C\n", t_ref);
-			printf("	- Nível da caldeira: %f m\n\n", h_ref);
+			printf(COLOR_WHITE "Novas referências definidas: \n");
+			printf("\t- Temperatura: %f °C\n", t_ref);
+			printf("\t- Nível da caldeira: %f m\n\n", h_ref);
+			sleep(5);
 			pthread_mutex_unlock(&mutex_tela);
 		}
-		sleep(0.5);
 	}
 
 }
 
 
-void leitura_sensores_caldeira (struct sockaddr_in *address){
+void leitura_sensores_caldeira (){
 	// Variáveis da comunicação
 	int socket = cria_socket_local();
 	int udp_hanndler = 0;
@@ -168,13 +151,18 @@ void leitura_sensores_caldeira (struct sockaddr_in *address){
 	while(1){
 		// Aguarda até a próxima execução
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t, NULL);
-		udp_read_data(socket, *address, GET_T,	&caldeira.T);
-		udp_read_data(socket, *address, GET_H,	&caldeira.H);
-		udp_read_data(socket, *address, GET_Ta, &caldeira.Ta);
-		udp_read_data(socket, *address, GET_Ti, &caldeira.Ti);
-		udp_read_data(socket, *address, GET_No, &caldeira.No);
+		// Requisita a leitura dos sensores
+		udp_read_data(socket, GET_T,  &caldeira.T);
+		udp_read_data(socket, GET_H,  &caldeira.H);
+		udp_read_data(socket, GET_Ta, &caldeira.Ta);
+		udp_read_data(socket, GET_Ti, &caldeira.Ti);
+		udp_read_data(socket, GET_No, &caldeira.No);
 
-		
+		// Cálculo dos valores de fluxo de calor
+		caldeira.Qa = caldeira.Na * S_AGUA * (80 - caldeira.T);
+		caldeira.Qi = caldeira.Ni * S_AGUA * (caldeira.Ti - caldeira.T);
+		caldeira.Qe = -(caldeira.T - caldeira.Ta) / R_ISOLAMENTO;
+		caldeira.Qt = caldeira.Qa + caldeira.Qi + caldeira.Qe + caldeira.Q;
 
 		
 		// Computa o tempo utilizado para execução
@@ -191,7 +179,7 @@ void leitura_sensores_caldeira (struct sockaddr_in *address){
 		}
 	}
 }
-void temp_control (struct sockaddr_in *address){
+void temp_control (){
 	// Variáveis da comunicação
 	int socket = cria_socket_local();
 	int udp_hanndler = 0;
@@ -206,6 +194,11 @@ void temp_control (struct sockaddr_in *address){
 	// Variáveis de tempo
 	struct timespec t;
 	struct timespec t_exec;				// Tempo ao final da execução;
+
+	#ifdef DEBUG_TIME_TEMP
+		struct timespec t_old;			// Usado para debug
+	#endif
+
 	int ns_period = T_PERIOD * 1.0E9;	// Converte o periodo de segundo para nano segundo
 	int exec_ns;
 	clock_gettime(CLOCK_MONOTONIC, &t);	// Leitura do horário atual
@@ -218,21 +211,10 @@ void temp_control (struct sockaddr_in *address){
 		if (t_ref != -1.0f){
 			// Atualiza o controlador PI
 			new_q = PI_Update(&PI_Temp, t_ref, caldeira.T);
-
 			// Envia novo valor de Q para a caldeira;
-			udp_hanndler = udp_write_data(socket, *address, SET_Q, new_q);
+			udp_hanndler = udp_write_data(socket, SET_Q, new_q);
 			//printf("temp_control - Após ler T = %f definida novo H = %f\n", caldeira.T, new_q);
 
-			/*
-			if(new_q == 0 && caldeira.Q != new_q){
-				printf("Abrindo circulação de água para esfriar tanque!!!!!!!!");
-				udp_hanndler = udp_write_data(socket, *address, SET_Ni, 10);
-				udp_hanndler = udp_write_data(socket, *address, SET_Nf, 10);
-			} else if(new_q > 0 && caldeira.Q == 0){
-				udp_hanndler = udp_write_data(socket, *address, SET_Ni, 0);
-				udp_hanndler = udp_write_data(socket, *address, SET_Nf, 0);	
-			}
-			*/
 			caldeira.Q = new_q;
 		}
 		
@@ -240,6 +222,10 @@ void temp_control (struct sockaddr_in *address){
 		clock_gettime(CLOCK_MONOTONIC, &t_exec);	// Leitura do horário atual
 		exec_ns = (t_exec.tv_sec - t.tv_sec) * 1.0E9;
 		exec_ns += abs(t_exec.tv_nsec - t.tv_nsec);
+		
+		#ifdef DEBUG_TIME_TEMP
+			t_old = t;
+		#endif
 
 		// Calcula a próxima execução removendo o tempo utilizado na execuçao do controle.
 		t.tv_nsec += (ns_period - exec_ns);
@@ -248,27 +234,30 @@ void temp_control (struct sockaddr_in *address){
 			t.tv_nsec -= NSEC_PER_SEC;
 			t.tv_sec++;
 		}
-	
+
+		#ifdef DEBUG_TIME_TEMP 
+			printf("temp_control - Executou em %f ms. Periodo: %f\n", exec_ns / 1E6, (t.tv_sec-t_old.tv_sec)*1000 + (t.tv_nsec-t_old.tv_nsec) / 1E6);
+		#endif
 	}
 
 }
 
-void incrementa_nivel (int socket, struct sockaddr_in address, float vazao){
+void incrementa_nivel (int socket, float vazao){
 	// Define vazão para a válvula de entrada
-	udp_write_data(socket, address, SET_Ni, vazao);
-	udp_write_data(socket, address, SET_Nf, 0);
+	udp_write_data(socket, SET_Ni, vazao);
+	udp_write_data(socket, SET_Nf, 0);
 	caldeira.Ni = vazao;
 	caldeira.Nf = 0;
 }
-void decrementa_nivel (int socket, struct sockaddr_in address, float vazao){
+void decrementa_nivel (int socket, float vazao){
 	// Define vazão para a válvula de saída
-	udp_write_data(socket, address, SET_Ni, 0);
-	udp_write_data(socket, address, SET_Nf, vazao);
+	udp_write_data(socket, SET_Ni, 0);
+	udp_write_data(socket, SET_Nf, vazao);
 	caldeira.Ni = 0;
 	caldeira.Nf = vazao;
 }
 
-void nivel_control (struct sockaddr_in *address){
+void nivel_control (){
 	// Variáveis da comunicação
 	int socket = cria_socket_local();
 	int udp_hanndler = 0;
@@ -281,12 +270,19 @@ void nivel_control (struct sockaddr_in *address){
 	float new_vazao = 0;				//Armazena novo valor de vazao
 
 	// Variáveis de tempo
-	struct timespec t;
+	struct timespec t;					// Tempo da próxima execução.
 	struct timespec t_exec;				// Tempo ao final da execução;
+
+	#ifdef DEBUG_TIME_NIVEL
+		struct timespec t_old;			// Usado para debug
+	#endif
+
 	int ns_period = Q_PERIOD * 1.0E9;	// Converte o periodo de segundo para nano segundo
-	int exec_ns;
+	int exec_ns;						// Armazena os nanosegundos de execução do código
+
 	clock_gettime(CLOCK_MONOTONIC, &t);	// Leitura do horário atual
 	t.tv_sec += 2;						// Inicia o controle após dois segundos
+
 	printf(COLOR_GREEN "* Thread de controle do nível inicializada\n");
 	while(1){
 		// Aguarda até a próxima execução
@@ -299,15 +295,15 @@ void nivel_control (struct sockaddr_in *address){
 
 			if(new_vazao > 0){
 				new_vazao = fabs(new_vazao);
-				incrementa_nivel(socket, *address, new_vazao);
+				incrementa_nivel(socket, new_vazao);
 
 			} else if(new_vazao < 0){
 				new_vazao = fabs(new_vazao);
-				decrementa_nivel(socket, *address, new_vazao);
+				decrementa_nivel(socket, new_vazao);
 			} else {
 				// Não faz nada com o nível do tanque...
-				udp_hanndler = udp_write_data(socket, *address, SET_Ni, 0);
-				udp_hanndler = udp_write_data(socket, *address, SET_Nf, 0);
+				udp_hanndler = udp_write_data(socket, SET_Ni, 0);
+				udp_hanndler = udp_write_data(socket, SET_Nf, 0);
 				caldeira.Ni = 0;
 				caldeira.Nf = 0;
 			}
@@ -320,6 +316,11 @@ void nivel_control (struct sockaddr_in *address){
 		exec_ns = (t_exec.tv_sec - t.tv_sec) * 1.0E9;
 		exec_ns += abs(t_exec.tv_nsec - t.tv_nsec);
 
+
+		#ifdef DEBUG_TIME_NIVEL
+			t_old = t;			// Utilizado para depuração do periodo da thread
+		#endif
+
 		// Calcula a próxima execução removendo o tempo utilizado na execuçao do controle.
 		t.tv_nsec += (ns_period - exec_ns);
 		// Correção das variáveis de segundo e nano segundo
@@ -328,6 +329,9 @@ void nivel_control (struct sockaddr_in *address){
 				t.tv_sec++;
 		}
 	
+		#ifdef DEBUG_TIME_NIVEL
+			printf("nivel_control - Executou em %f ms. Periodo: %f\n", exec_ns / 1E6, (t.tv_sec-t_old.tv_sec)*1000 + (t.tv_nsec-t_old.tv_nsec) / 1E6);
+		#endif
 	}
 
 }
@@ -345,35 +349,39 @@ int main (int argc, char *argv[]) {
 	printf(COLOR_GREEN "* Iniciando o sistema...\n");
 	// Gera struct com endereço host:port
 	int porta_destino = atoi(argv[2]);
-	struct sockaddr_in endereco_destino = cria_endereco_destino(argv[1], porta_destino);
+
+	// Atualiza endereço do host
+	cria_endereco_destino(argv[1], porta_destino);
 
 	t_ref = 25;
 	h_ref = 1.25;
 	caldeira.Q = -1;
 	caldeira.T = -1;
 	// Criação das threads de controle;
-	pthread_create(&thread_update_reads, NULL, (void *) leitura_sensores_caldeira, (void *) &endereco_destino);
+	pthread_create(&thread_update_reads, NULL, (void *) leitura_sensores_caldeira, NULL);
 	pthread_create(&thread_refresh_screen, NULL, (void *) refresh_screen, NULL);
 	pthread_create(&thread_read_new_references, NULL, (void *) read_new_references, NULL);
 
-	pthread_create(&thread_control_temp, NULL, (void *) temp_control, (void *) &endereco_destino);
-	pthread_create(&thread_control_h,    NULL, (void *) nivel_control, (void *) &endereco_destino);
+	pthread_create(&thread_control_temp, NULL, (void *) temp_control, NULL);
+	pthread_create(&thread_control_h,    NULL, (void *) nivel_control, NULL);
 	
 	pthread_join(thread_update_reads, NULL);
 	pthread_join(thread_refresh_screen, NULL);
 	pthread_join(thread_read_new_references, NULL);
 	pthread_join(thread_control_temp, NULL);
 	pthread_join(thread_control_h, NULL);
+
+
 	/* Testes de comunicação:
 	// Criação do socket
 	int socket = cria_socket_local();
 	int udp_hanndler = 0;
 	
-	udp_hanndler = udp_write_data(socket, endereco_destino, SET_Q, 1200);
+	udp_hanndler = udp_write_data(socket, SET_Q, 1200);
 	printf("Mensagem enviada. Resultado: %d\n", udp_hanndler);
 
 
-	udp_hanndler = udp_read_data(socket, endereco_destino, GET_T, &caldeira.T);
+	udp_hanndler = udp_read_data(socket, GET_T, &caldeira.T);
 	printf("\nMensagem lida. Resultado (%d) = T_value: %f \n", udp_hanndler, caldeira.T);
 	*/
 }
