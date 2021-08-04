@@ -21,7 +21,7 @@ pthread_mutex_t mutex_buffer = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond_buffer_cheio = PTHREAD_COND_INITIALIZER;
 
 // Armazena dos dados da caldeira
-Caldeira caldeira;
+Caldeira caldeira = {.flag_resfriamento_agua = 0, .flag_aquecimento_agua=0};
 
 BufferDuplo buffer_temp = {.selected_buffer = 0, .index = 0, .gravar = -1};
 
@@ -76,24 +76,32 @@ void refresh_screen (){
 			printf(COLOR_RED "* [ALARME] A temperatura está acima do valor recomendado de %d °C\n", TEMP_FAULT);
 			printf(COLOR_RED "-----------------------------------------------------------------------\n");
 		}
+		if (caldeira.flag_resfriamento_agua == 1){
+			printf(COLOR_YELLOW "[!] Circulando água fria para ajudar no resfriamento do tanque.");
+		}
+		if (caldeira.flag_aquecimento_agua == 1){
+			printf(COLOR_YELLOW "[!] Inserindo água quente para ajudar no aquecimento da água do tanque.");
+		}
 		printf(COLOR_CYAN "\nParâmetros de controle:\n");	
 		printf(COLOR_WHITE"* Setpoint de temperatura: %.2f °C\n", t_ref);	
 		printf(COLOR_WHITE"* Setpoint de nível: %.2f m\n", h_ref);	
 		printf(COLOR_CYAN "\nInformação dos sensores lidos da caldeira:\n");
 		printf(COLOR_WHITE"* Temperatura da água no interior (T): %f °C\n", caldeira.T);
-		printf(COLOR_WHITE"* Nível da caldeira (H): %f m\n\n", caldeira.H);
-		printf(COLOR_WHITE"* Temperatura da água de entrada  (Ti): %f °C\n", caldeira.Ti);
-		printf(COLOR_WHITE"* Temperatura exterior da caldeira (Ta): %f °C\n\n", caldeira.Ta);
+		printf(COLOR_WHITE"* Nível da caldeira (H): %f m\n", caldeira.H);
+		printf(COLOR_WHITE"* Temperatura da água de entrada (Ti): %f °C\n", caldeira.Ti);
+		printf(COLOR_WHITE"* Temperatura exterior da caldeira (Ta): %f °C\n", caldeira.Ta);
+		printf(COLOR_WHITE"* Fluxo de saída da água da caldeira (No): %f kg/s\n", caldeira.No);
 
+		printf(COLOR_CYAN "\nDados estimados da caldeira:\n");
+		printf(COLOR_WHITE"* Fluxo de calor do aquecedor (Q): %f J/s\n", caldeira.Q);
 		printf(COLOR_WHITE"* Fluxo de calor inserido pela água de entrada (Qi): %f J/s\n", caldeira.Qi);	
-		printf(COLOR_WHITE"* Fluxo de calor inserido pela água quente  (Qa): %f J/s\n", caldeira.Qa);	
-		printf(COLOR_WHITE"* Fluxo de calor através do isolante (Qe): %f J/s\n", caldeira.Qe);	
-		printf(COLOR_WHITE"* Fluxo de calor do aquecedor (Q): %f J/s\n", caldeira.Q);	
+		printf(COLOR_WHITE"* Fluxo de calor inserido pela água quente (Qa): %f J/s\n", caldeira.Qa);	
+		printf(COLOR_WHITE"* Fluxo de calor através do isolante (Qe): %f J/s\n", caldeira.Qe);		
 		printf(COLOR_WHITE"* Fluxo de calor total: %f J/s\n\n", caldeira.Qt);	
 
+		printf(COLOR_CYAN "\nVálvulas atuadas pelo sistema:\n");
 		printf(COLOR_WHITE"* Fluxo de entrada de água da caldeira (Ni): %f kg/s\n", caldeira.Ni);
 		printf(COLOR_WHITE"* Fluxo de entrada de água aquecida 80°C (Na): %f kg/s\n", caldeira.Na);
-		printf(COLOR_WHITE"* Fluxo de saída de água da caldeira (No): %f kg/s\n", caldeira.No);
 		printf(COLOR_WHITE"* Fluxo de saída de água para esgoto (Nf): %f kg/s\n", caldeira.Nf);
 
 		printf(COLOR_CYAN "\nComandos disponíveis: \n");
@@ -130,7 +138,8 @@ void read_new_references (){
 			if(new_reference.is_valid == 1){
 				t_ref = new_reference.value;
 			} else {
-				printf(TO_RED("[ERROR]") " - Valor digitado não é válido! \n");
+				printf(TO_RED("[ERROR]") " - Valor digitado não é válido! Mantendo o mesmo setpoint...\n");
+				sleep(1);
 			}
 
 			printf("* Digite um novo valor para referência de nível (m):");
@@ -141,21 +150,20 @@ void read_new_references (){
 				if(new_reference.value <= H_MAX && new_reference.value >= H_MIN) {
 					h_ref = new_reference.value;
 				} else {
-					printf(TO_RED("[ERROR]") " - Valor digitado está fora dos limites permitidos! (Máx: %d Mín: %d) \n", H_MAX, H_MIN);
+					printf(TO_RED("[ERROR]") " - Valor digitado está fora dos limites permitidos! (Máx: %.1f Mín: %.1f). Mantendo o mesmo setpoint... \n", H_MAX, H_MIN);
+					sleep(3);
 				}
 			} else {
-				printf(TO_RED("[ERROR]") " - Valor digitado não é válido! \n");
+				printf(TO_RED("[ERROR]") " - Valor digitado não é válido! Mantendo o mesmo setpoint... \n");
+				sleep(3);
 			}
-
-			printf(COLOR_WHITE "Novas referências definidas: \n");
-			printf("\t- Temperatura: %f °C\n", t_ref);
-			printf("\t- Nível da caldeira: %f m\n\n", h_ref);
-			sleep(5);
+			
 			pthread_mutex_unlock(&mutex_tela);
 		}
 	}
 
 }
+
 
 // Thread para leitura dos sensores da caldeira
 void leitura_sensores_caldeira (){
@@ -266,12 +274,49 @@ void temp_control (){
 
 }
 
+float calc_ni_value (float N_total){
+	/* 	
+		Cálcula o valor de Ni com base no fluxo total e 
+		relacionando com o fluxo de calor de Qa para deixar 
+		o sistema estável (sem variação de Q)
+		Qi = - Qa;
+		Ni * S * (Ti - T) = - Na * S * (80 - T)
+		Na = Ntotal - Ni
+
+		Equacionando chega-se em:
+		k = (T - 80) / (Ti - T);
+		Ni = k * Ntotal / (1 + k);
+	*/
+	float k = (caldeira.T - 80) / (caldeira.Ti - caldeira.T);
+	float ni = N_total * k / (1 + k);
+	return ni;
+}
+
 // Função para incrementar o nível da caldeira
 void incrementa_nivel (int socket, float vazao){
+	float ni, na;
+	if (caldeira.T > t_ref){
+		// Caso a caldeira esteja mais quente que o desejado, não utiliza água quente.
+		ni = vazao;
+		na = 0;
+	} else {
+		// Caso esteja mais fria, tenta balancear Na e Ni para não influênciar na temperatura.
+		ni = calc_ni_value(vazao);
+		na = vazao - ni;
+		// Saturação dos valores
+		if (na < 0) na = 0;
+		if (na > 10) na = 10;
+		if (ni > 100) ni = 100;
+		if (ni < 0) ni = 0;
+	}
+
 	// Define vazão para a válvula de entrada
-	udp_write_data(socket, SET_Ni, vazao);
+	//printf("NI: %f, NA: %f, vazao: %f \n", ni, na, vazao);
+	udp_write_data(socket, SET_Ni, ni);
+	udp_write_data(socket, SET_Na, na);
 	udp_write_data(socket, SET_Nf, 0);
-	caldeira.Ni = vazao;
+	caldeira.Ni = ni;
+	caldeira.Na = na;
 	caldeira.Nf = 0;
 }
 // Função para decrementar o nível da caldeira
@@ -279,7 +324,9 @@ void decrementa_nivel (int socket, float vazao){
 	// Define vazão para a válvula de saída
 	udp_write_data(socket, SET_Ni, 0);
 	udp_write_data(socket, SET_Nf, vazao);
+	udp_write_data(socket, SET_Na, 0);
 	caldeira.Ni = 0;
+	caldeira.Na = 0;
 	caldeira.Nf = vazao;
 }
 
@@ -321,19 +368,61 @@ void nivel_control (){
 			new_vazao = PI_Update(&PI_Nivel, h_ref, caldeira.H);
 
 			// Com base na saída, define o atuador
-			if(new_vazao > 0){
+			if(new_vazao > 0 && new_vazao >= 0.001){
 				new_vazao = fabs(new_vazao);
 				incrementa_nivel(socket, new_vazao);
+				caldeira.flag_resfriamento_agua = 0;
+				caldeira.flag_aquecimento_agua = 0;
 
-			} else if(new_vazao < 0){
+			} else if(new_vazao < 0 && new_vazao <= -0.001){
 				new_vazao = fabs(new_vazao);
 				decrementa_nivel(socket, new_vazao);
+				caldeira.flag_resfriamento_agua = 0;
+				caldeira.flag_aquecimento_agua = 0;
 			} else {
-				// Não faz nada com o nível do tanque...
-				udp_hanndler = udp_write_data(socket, SET_Ni, 0);
-				udp_hanndler = udp_write_data(socket, SET_Nf, 0);
-				caldeira.Ni = 0;
-				caldeira.Nf = 0;
+				if ((caldeira.T > 1.05 * t_ref) && (caldeira.Ti < caldeira.T)){
+					/* 
+					Caso:
+						- a temperatura esteja 105% mais alta que a temperatura desejada;
+						- temperatura da água de entrada seja mais baixa que a da água interna;
+					Abre as válvulas de entrada e esgoto para fazer circulação da água no tanque
+					e ajudar no resfriamento.
+					*/
+					udp_hanndler = udp_write_data(socket, SET_Ni, 100);
+					udp_hanndler = udp_write_data(socket, SET_Nf, 100);
+					udp_hanndler = udp_write_data(socket, SET_Na, 0);
+					caldeira.Ni = 100;
+					caldeira.Na = 0;
+					caldeira.Nf = 100;
+					caldeira.flag_resfriamento_agua = 1;
+					caldeira.flag_aquecimento_agua = 0;
+				} else if (caldeira.T < 0.8 * t_ref) {
+					/* 
+					Caso:
+						- a temperatura esteja 80% abaixo da temperatura desejada;
+					Abre as válvulas de agua quente e esgoto para fazer circulação da água no tanque
+					e ajudar no aquecimento.
+					*/
+					udp_hanndler = udp_write_data(socket, SET_Na, 10);
+					udp_hanndler = udp_write_data(socket, SET_Ni, 0);
+					udp_hanndler = udp_write_data(socket, SET_Nf, 10);
+					caldeira.Ni = 0;
+					caldeira.Na = 10;
+					caldeira.Nf = 10;
+					caldeira.flag_aquecimento_agua = 1;
+					caldeira.flag_resfriamento_agua = 0;
+
+				} else {
+					// Não faz nada com o nível do tanque...
+					udp_hanndler = udp_write_data(socket, SET_Ni, 0);
+					udp_hanndler = udp_write_data(socket, SET_Na, 0);
+					udp_hanndler = udp_write_data(socket, SET_Nf, 0);
+					caldeira.Ni = 0;
+					caldeira.Nf = 0;
+					caldeira.Na = 0;
+					caldeira.flag_resfriamento_agua = 0;
+					caldeira.flag_aquecimento_agua = 0;
+				}
 			}
 		}
 		

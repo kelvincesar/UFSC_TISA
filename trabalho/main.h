@@ -79,6 +79,9 @@ typedef struct {
 	float Nf;	// Fluxo de água de saída [kg/s]
 	float Na; 	// Fluxo de água aquecida a 80C de entrada controlada [kg/s]
 	float No;	// Fluxo de água de saída do recipiente [kg/s]
+	int flag_resfriamento_agua;	// Indica que está tentando fazer resfriamento com circulação de água;
+	int flag_aquecimento_agua;  // Indica que está tentando fazer aquecimento com circulação de água quente;
+	int flag_troca_calor_const; // Indica que está alterando o nível porém mantendo a troca de calor constante;
 } Caldeira;
 
 // # Geral
