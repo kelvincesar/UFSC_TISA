@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <math.h>
 #include <fcntl.h>
+#include <time.h>
 
 #include "./libs/udp_client.h"
 #include "./libs/pi.h"
@@ -19,8 +20,8 @@
 //#define DEBUG_TIME_TEMP
 //#define DEBUG_TIME_NIVEL
 // # Buffer
-#define BUFFER_SIZE     (100)
-#define BUFFER_FILE_NAME "caldeira_log_temperatura.log"
+#define BUFFER_SIZE     (10)
+#define BUFFER_FILE_NAME "./caldeira_log_temperatura.log"
 
 // # Parâmetros da caldeira:
 #define TEMP_FAULT      (30)    // Temperatura que gera falha

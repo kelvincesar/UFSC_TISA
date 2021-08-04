@@ -14,6 +14,7 @@ pthread_t thread_refresh_screen;
 pthread_t thread_read_new_references;
 pthread_t thread_control_temp;
 pthread_t thread_control_h;
+pthread_t thread_buffer;
 
 
 pthread_mutex_t mutex_tela = PTHREAD_MUTEX_INITIALIZER;
@@ -32,6 +33,7 @@ float h_ref = -1.0f;
 
 // Função usada para inserir um novo valor no buffer
 void buffer_insert(float value, BufferDuplo *buffer){
+	//printf("buffer_insert!!!\n");
 	pthread_mutex_lock(&mutex_buffer);
 	if(buffer->selected_buffer == 0){
 		buffer->buffer0[buffer->index] = value;
@@ -46,6 +48,40 @@ void buffer_insert(float value, BufferDuplo *buffer){
 		pthread_cond_signal(&cond_buffer_cheio);
 	}
 	pthread_mutex_unlock(&mutex_buffer);
+}
+
+void armazena_buffer (BufferDuplo *buffer) { 
+	float *my_buffer;
+	sleep(5);
+	while(1){
+		pthread_mutex_lock( &mutex_buffer);
+		//printf("Aguardando cond...\n");
+		while( buffer->gravar == -1 ){
+			pthread_cond_wait( &cond_buffer_cheio, &mutex_buffer);
+		}
+		//printf("Verificando buffer..\n");
+		if(buffer->gravar==0 ){
+			my_buffer = buffer->buffer0;
+		} else {
+			my_buffer = buffer->buffer1;
+		}
+		buffer->gravar = -1;
+		pthread_mutex_unlock( &mutex_buffer);
+
+		FILE *fp;
+		fp = fopen(BUFFER_FILE_NAME, "w+");
+		int i = 0;
+		//printf("Escrevendo no arquivo...\n");
+		time_t current_time;
+		time(&current_time);
+		fprintf(fp, "%s", ctime(&current_time));
+		for (i = 0; i < BUFFER_SIZE; i++){
+			fprintf(fp, "\t- Temperatura: %.2f °C\n", my_buffer[i]);
+		}
+		fclose(fp);
+		sleep(5);
+	}
+
 }
 
 // * Função utilizada para converter um valor de string para float
@@ -66,7 +102,7 @@ void refresh_screen (){
 		} else if(falha_temperatura == 1 && caldeira.T <= TEMP_FAULT){
 			falha_temperatura = 0;
 		}
-
+		buffer_insert(caldeira.T, &buffer_temp);
 		// Exibe os dados no terminal
 		pthread_mutex_lock(&mutex_tela);
 		system("clear");
@@ -107,6 +143,9 @@ void refresh_screen (){
 		printf(COLOR_CYAN "\nComandos disponíveis: \n");
 		printf(TO_BLUE("[ENTER]") COLOR_WHITE " - Para definir novos valores de setpoint\n");	
 		pthread_mutex_unlock(&mutex_tela);
+
+		
+
 		sleep(1);
 	}
 }
@@ -188,7 +227,8 @@ void leitura_sensores_caldeira (){
 		udp_read_data(socket, GET_Ta, &caldeira.Ta);
 		udp_read_data(socket, GET_Ti, &caldeira.Ti);
 		udp_read_data(socket, GET_No, &caldeira.No);
-
+		
+		
 		// Cálculo dos valores de fluxo de calor
 		caldeira.Qa = caldeira.Na * S_AGUA * (80 - caldeira.T);
 		caldeira.Qi = caldeira.Ni * S_AGUA * (caldeira.Ti - caldeira.T);
@@ -476,15 +516,19 @@ int main (int argc, char *argv[]) {
 	pthread_create(&thread_update_reads, NULL, (void *) leitura_sensores_caldeira, NULL);
 	pthread_create(&thread_refresh_screen, NULL, (void *) refresh_screen, NULL);
 	pthread_create(&thread_read_new_references, NULL, (void *) read_new_references, NULL);
+	
 
 	pthread_create(&thread_control_temp, NULL, (void *) temp_control, NULL);
 	pthread_create(&thread_control_h,    NULL, (void *) nivel_control, NULL);
-	
+
+	pthread_create(&thread_buffer, NULL, (void *) armazena_buffer, (void *) &buffer_temp);
+
 	pthread_join(thread_update_reads, NULL);
 	pthread_join(thread_refresh_screen, NULL);
 	pthread_join(thread_read_new_references, NULL);
 	pthread_join(thread_control_temp, NULL);
 	pthread_join(thread_control_h, NULL);
+	pthread_join(thread_buffer, NULL);
 
 
 	/* Testes de comunicação:
