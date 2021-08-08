@@ -69,7 +69,7 @@ void armazena_buffer (BufferDuplo *buffer) {
 		pthread_mutex_unlock( &mutex_buffer);
 
 		FILE *fp;
-		fp = fopen(BUFFER_FILE_NAME, "w+");
+		fp = fopen(BUFFER_FILE_NAME, "a");
 		int i = 0;
 		//printf("Escrevendo no arquivo...\n");
 		time_t current_time;
